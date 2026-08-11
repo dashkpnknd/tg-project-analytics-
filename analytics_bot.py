@@ -118,6 +118,11 @@ class Metrics:
     def __init__(self, store: Store, hub_db: Path):
         self.store, self.hub_db = store, hub_db
 
+    @staticmethod
+    def project_name(name: str) -> str:
+        aliases = {"apple": "АЙФОНЫ", "AI РАЗБОР ТЕНДЕРОВ": "ГОСЗАКУПКИ"}
+        return aliases.get(name, name)
+
     def _hub_rows(self, start: int, end: int | None) -> list[sqlite3.Row]:
         if not self.hub_db.exists():
             log.warning("Dialog Hub database not found: %s", self.hub_db)
@@ -153,11 +158,13 @@ class Metrics:
     def summary(self, start: int, end: int | None) -> dict[str, dict[str, int]]:
         data: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         for row in self._hub_rows(start, end):
-            data[row["project"]]["sent"] += row["sent"] or 0
-            data[row["project"]]["replied"] += row["replied"] or 0
-        names = {"join_request": "requests", "join_approved": "approved", "lead": "leads"}
+            project = self.project_name(row["project"])
+            data[project]["sent"] += row["sent"] or 0
+            data[project]["replied"] += row["replied"] or 0
+        names = {"join_request": "requests", "join_approved": "approved", "second_message_sent": "second_sent", "third_message_sent": "third_sent", "lead": "leads"}
         for row in self.store.event_rows(start, end):
-            data[row["project"]][names.get(row["event_type"], row["event_type"])] += row["count"]
+            project = self.project_name(row["project"])
+            data[project][names.get(row["event_type"], row["event_type"])] += row["count"]
         return data
 
 
@@ -238,8 +245,11 @@ class AnalyticsBot:
             sent, replied = m["sent"], m["replied"]
             conversion = f"{replied / sent * 100:.1f}%" if sent else "—"
             result.extend([f"\n<b>{html.escape(project)}</b>", f"• Отправлено: <b>{sent}</b>", f"• Ответили: <b>{replied}</b> ({conversion})"])
-            if m["requests"] or m["approved"] or m["leads"]:
-                result.append(f"• Заявки в канал: <b>{m['requests']}</b> · Одобрено: <b>{m['approved']}</b>")
+            approval_conversion = f"{m['approved'] / m['requests'] * 100:.1f}%" if m["requests"] else "—"
+            result.append(f"• Заявки в канал: <b>{m['requests']}</b>")
+            result.append(f"• Одобрено / подписались: <b>{m['approved']}</b> ({approval_conversion})")
+            if m["second_sent"] or m["third_sent"]:
+                result.append(f"• 2-е сообщение: <b>{m['second_sent']}</b> · 3-е сообщение: <b>{m['third_sent']}</b>")
             if m["leads"]: result.append(f"• Лиды: <b>{m['leads']}</b>")
         return "\n".join(result)
 
