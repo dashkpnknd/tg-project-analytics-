@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram Project Analytics Bot
+After=network-online.target dialoghub.service tg_zayavki.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tg-project-analytics
+EnvironmentFile=/opt/tg-project-analytics/.env
+ExecStart=/opt/tg-project-analytics/venv/bin/python /opt/tg-project-analytics/analytics_bot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

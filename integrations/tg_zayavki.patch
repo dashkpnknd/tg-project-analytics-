@@ -1,0 +1,14 @@
+--- approvedApplications.py
++++ approvedApplications.py
+@@
+ from telethon.sessions import StringSession
++from analytics_events import record_event
+@@
+             if await self.enqueue_request(chat_peer, user_id, user_label):
++                await record_event(self.task_name, "join_request", f"join-request:{self.task_name}:{user_id}")
+                 await self.report(
+@@
+                 self.last_approval_time = datetime.now()
+                 self.daily_count += 1
+                 self.processed_users.add(user_id)
++                await record_event(self.task_name, "join_approved", f"join-approved:{self.task_name}:{user_id}")
