@@ -285,8 +285,8 @@ class AnalyticsBot:
     async def schedule_loop(self):
         while True:
             now = dt.datetime.now(self.s.timezone)
-            # Report yesterday at 09:00; weekly Monday morning and monthly first day.
-            if now.hour == 9 and now.minute == 0:
+            # At 00:01 Moscow time the previous calendar period is complete.
+            if now.hour == 0 and now.minute == 1:
                 yesterday = (now.date() - dt.timedelta(days=1)).isoformat()
                 if not self.store.report_sent("day", yesterday):
                     await self.send_report("day"); self.store.mark_report_sent("day", yesterday)
