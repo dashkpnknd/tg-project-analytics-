@@ -167,6 +167,24 @@ class Metrics:
             data[project][names.get(row["event_type"], row["event_type"])] += row["count"]
         return data
 
+    def outreach_texts(self, project: str, start: int, end: int | None) -> list[sqlite3.Row]:
+        """Message-level results: which first outreach texts create replies."""
+        if not self.hub_db.exists(): return []
+        query = """
+          SELECT o.script_label, COUNT(*) sent,
+            SUM(CASE WHEN o.replied_at>=:start AND (:end IS NULL OR o.replied_at<:end) THEN 1 ELSE 0 END) replied
+          FROM outreach_messages o JOIN projects p ON p.id=o.project_id
+          WHERE p.name=:project AND o.sent_at>=:start AND (:end IS NULL OR o.sent_at<:end)
+          GROUP BY o.script_label ORDER BY sent DESC, replied DESC, o.script_label
+        """
+        try:
+            with closing(sqlite3.connect(f"file:{self.hub_db}?mode=ro", uri=True)) as db:
+                db.row_factory = sqlite3.Row
+                return db.execute(query, {"project": project, "start": start, "end": end}).fetchall()
+        except sqlite3.Error:
+            log.exception("Could not read outreach text metrics")
+            return []
+
 
 class TelegramAPI:
     def __init__(self, token: str):
@@ -251,6 +269,16 @@ class AnalyticsBot:
             if m["second_sent"] or m["third_sent"]:
                 result.append(f"• 2-е сообщение: <b>{m['second_sent']}</b> · 3-е сообщение: <b>{m['third_sent']}</b>")
             if m["leads"]: result.append(f"• Лиды: <b>{m['leads']}</b>")
+        # For the present priority project, the daily report also shows how
+        # individual first-message variations performed.
+        if kind == "day":
+            text_stats = self.metrics.outreach_texts("ГОСЗАКУПКИ", start, end)
+            if text_stats:
+                result.append("\n<b>ГОСЗАКУПКИ · тексты первой рассылки</b>")
+                for index, row in enumerate(text_stats, 1):
+                    snippet = html.escape(" ".join(row["script_label"].split())[:96])
+                    conv = f"{row['replied'] / row['sent'] * 100:.1f}%" if row["sent"] else "—"
+                    result.append(f"{index}. {snippet}\n   Отправлено: <b>{row['sent']}</b> · ответили: <b>{row['replied']}</b> ({conv})")
         return "\n".join(result)
 
     async def send_report(self, kind: str, start: int | None = None, end: int | None = None, label: str | None = None) -> None:
