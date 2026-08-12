@@ -223,6 +223,7 @@ class AnalyticsBot:
     @staticmethod
     def keyboard() -> dict:
         return {"inline_keyboard": [[
+            {"text": "◀️ Вчера", "callback_data": "day"},
             {"text": "📅 Эта неделя", "callback_data": "week"},
             {"text": "♾ За всё время", "callback_data": "all"},
         ]]}
@@ -308,9 +309,10 @@ class AnalyticsBot:
         if not self.is_admin(user_id): return
         if command == "/set_report_chat":
             self.store.set("report_chat_id", str(chat_id)); await self.tg.send(chat_id, "✅ Этот чат назначен для автоматических отчётов.", self.keyboard())
+        elif command == "/yesterday": await self.tg.send(chat_id, self.format_report("day"), self.keyboard())
         elif command == "/week": await self.tg.send(chat_id, self.format_report("week"), self.keyboard())
         elif command == "/all": await self.tg.send(chat_id, self.format_report("all"), self.keyboard())
-        elif command == "/help": await self.tg.send(chat_id, "Команды: /week, /all, /set_report_chat", self.keyboard())
+        elif command == "/help": await self.tg.send(chat_id, "Команды: /yesterday, /week, /all, /set_report_chat", self.keyboard())
 
     async def polling_loop(self):
         while True:
