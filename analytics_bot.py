@@ -299,7 +299,7 @@ class AnalyticsBot:
         weak = sorted([x for x in reliable if x["rate"] < average], key=lambda x: (x["rate"], -x["sent"]))[:3]
         tests = [x for x in items if x["sent"] < 20]
         def show(index: int, item: dict) -> str:
-            text = html.escape(" ".join(item["text"].split())[:118])
+            text = html.escape(" ".join(item["text"].split()))
             return f"{index}. {text}\n   <b>{item['replied']}/{item['sent']}</b> ответов · {item['rate'] * 100:.1f}%"
         result = [
             f"<b>Скрипты · {html.escape(project)}</b>",
