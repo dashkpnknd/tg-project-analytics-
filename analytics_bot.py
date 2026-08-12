@@ -222,11 +222,24 @@ class AnalyticsBot:
 
     @staticmethod
     def keyboard() -> dict:
-        return {"inline_keyboard": [[
-            {"text": "◀️ Вчера", "callback_data": "day"},
-            {"text": "📅 Эта неделя", "callback_data": "week"},
-            {"text": "♾ За всё время", "callback_data": "all"},
-        ]]}
+        return {"inline_keyboard": [
+            [
+                {"text": "◀️ Вчера", "callback_data": "day"},
+                {"text": "📅 Эта неделя", "callback_data": "week"},
+                {"text": "♾ За всё время", "callback_data": "all"},
+            ],
+            [{"text": "🧪 Скрипты", "callback_data": "scripts_menu"}],
+        ]}
+
+    @staticmethod
+    def scripts_keyboard() -> dict:
+        return {"inline_keyboard": [
+            [
+                {"text": "Госзакупки", "callback_data": "scripts_tenders"},
+                {"text": "Трейдинг", "callback_data": "scripts_trading"},
+            ],
+            [{"text": "← К отчётам", "callback_data": "reports_menu"}],
+        ]}
 
     def report_chat_id(self) -> int | None:
         value = self.store.get("report_chat_id")
@@ -272,16 +285,36 @@ class AnalyticsBot:
                 site_conversion = f"{m['registrations'] / m['third_sent'] * 100:.1f}%" if m["third_sent"] else "—"
                 result.append(f"• Регистрации на сайте: <b>{m['registrations']}</b> ({site_conversion} от 3-го сообщения)")
             if m["leads"]: result.append(f"• Лиды: <b>{m['leads']}</b>")
-        # For the present priority project, the daily report also shows how
-        # individual first-message variations performed.
-        if kind == "day":
-            text_stats = self.metrics.outreach_texts("ГОСЗАКУПКИ", start, end)
-            if text_stats:
-                result.append("\n<b>ГОСЗАКУПКИ · тексты первой рассылки</b>")
-                for index, row in enumerate(text_stats, 1):
-                    snippet = html.escape(" ".join(row["script_label"].split())[:96])
-                    conv = f"{row['replied'] / row['sent'] * 100:.1f}%" if row["sent"] else "—"
-                    result.append(f"{index}. {snippet}\n   Отправлено: <b>{row['sent']}</b> · ответили: <b>{row['replied']}</b> ({conv})")
+        return "\n".join(result)
+
+    def format_scripts(self, project: str) -> str:
+        rows = [row for row in self.metrics.outreach_texts(project, 0, None) if row["script_label"] != "[медиа/файл]"]
+        if not rows:
+            return f"<b>Скрипты · {html.escape(project)}</b>\n\nПока нет данных по текстам."
+        items = [{"text": row["script_label"], "sent": row["sent"], "replied": row["replied"], "rate": row["replied"] / row["sent"] if row["sent"] else 0} for row in rows]
+        total_sent, total_replied = sum(x["sent"] for x in items), sum(x["replied"] for x in items)
+        average = total_replied / total_sent if total_sent else 0
+        reliable = [x for x in items if x["sent"] >= 20]
+        leaders = sorted([x for x in reliable if x["rate"] >= average], key=lambda x: (x["rate"], x["sent"]), reverse=True)[:3]
+        weak = sorted([x for x in reliable if x["rate"] < average], key=lambda x: (x["rate"], -x["sent"]))[:3]
+        tests = [x for x in items if x["sent"] < 20]
+        def show(index: int, item: dict) -> str:
+            text = html.escape(" ".join(item["text"].split())[:118])
+            return f"{index}. {text}\n   <b>{item['replied']}/{item['sent']}</b> ответов · {item['rate'] * 100:.1f}%"
+        result = [
+            f"<b>Скрипты · {html.escape(project)}</b>",
+            "Период: всё время",
+            f"Всего по текстовым скриптам: <b>{total_replied}/{total_sent}</b> ответов · {average * 100:.1f}%",
+        ]
+        if leaders:
+            result.append("\n<b>🏆 Рабочие скрипты</b>\nДостаточная выборка (от 20 отправок), выше или на уровне среднего.")
+            result.extend(show(i, x) for i, x in enumerate(leaders, 1))
+        if weak:
+            result.append("\n<b>📉 Нужна доработка</b>\nДостаточная выборка, но конверсия ниже средней.")
+            result.extend(show(i, x) for i, x in enumerate(weak, 1))
+        if tests:
+            no_replies = sum(1 for x in tests if not x["replied"])
+            result.append(f"\n<b>🧪 Ещё тестируем</b>\n{len(tests)} скриптов имеют меньше 20 отправок; из них {no_replies} пока без ответов. Рано делать выводы — нужно добрать выборку.")
         return "\n".join(result)
 
     async def send_report(self, kind: str, start: int | None = None, end: int | None = None, label: str | None = None) -> None:
@@ -295,7 +328,18 @@ class AnalyticsBot:
             user_id = callback["from"]["id"]
             if not self.is_admin(user_id): return
             await self.tg.call("answerCallbackQuery", callback_query_id=callback["id"])
-            await self.tg.send(callback["message"]["chat"]["id"], self.format_report(callback["data"]), self.keyboard())
+            chat_id = callback["message"]["chat"]["id"]
+            action = callback["data"]
+            if action == "scripts_menu":
+                await self.tg.send(chat_id, "<b>Скрипты</b>\nВыбери проект. Аналитика всегда за всё время.", self.scripts_keyboard())
+            elif action == "scripts_tenders":
+                await self.tg.send(chat_id, self.format_scripts("ГОСЗАКУПКИ"), self.scripts_keyboard())
+            elif action == "scripts_trading":
+                await self.tg.send(chat_id, self.format_scripts("ТРЕЙДИНГ"), self.scripts_keyboard())
+            elif action == "reports_menu":
+                await self.tg.send(chat_id, "Отчёты по проектам.", self.keyboard())
+            else:
+                await self.tg.send(chat_id, self.format_report(action), self.keyboard())
             return
         if not message or not message.get("text"): return
         user_id, chat_id = message["from"]["id"], message["chat"]["id"]
