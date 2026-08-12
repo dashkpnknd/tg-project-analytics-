@@ -76,6 +76,10 @@ class Store:
             period_start TEXT NOT NULL,
             PRIMARY KEY(kind, period_start)
         );
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            started_at INTEGER NOT NULL
+        );
         """)
         self.db.commit()
 
@@ -111,6 +115,13 @@ class Store:
 
     def mark_report_sent(self, kind: str, period_start: str) -> None:
         self.db.execute("INSERT OR IGNORE INTO sent_reports(kind,period_start) VALUES(?,?)", (kind, period_start)); self.db.commit()
+
+    def add_user(self, user_id: int) -> None:
+        self.db.execute("INSERT OR IGNORE INTO users(user_id,started_at) VALUES(?,?)", (user_id, int(dt.datetime.now(dt.timezone.utc).timestamp())))
+        self.db.commit()
+
+    def has_user(self, user_id: int) -> bool:
+        return self.db.execute("SELECT 1 FROM users WHERE user_id=?", (user_id,)).fetchone() is not None
 
 
 class Metrics:
@@ -249,6 +260,9 @@ class AnalyticsBot:
         admins = {int(x) for x in self.store.get("admin_ids").split(",") if x.strip()}
         return user_id in admins
 
+    def has_access(self, user_id: int) -> bool:
+        return self.is_admin(user_id) or self.store.has_user(user_id)
+
     def period(self, kind: str) -> tuple[int, int | None, str]:
         now = dt.datetime.now(self.s.timezone)
         if kind == "day":
@@ -323,7 +337,7 @@ class AnalyticsBot:
         callback = update.get("callback_query")
         if callback:
             user_id = callback["from"]["id"]
-            if not self.is_admin(user_id): return
+            if not self.has_access(user_id): return
             await self.tg.call("answerCallbackQuery", callback_query_id=callback["id"])
             chat_id = callback["message"]["chat"]["id"]
             action = callback["data"]
@@ -342,14 +356,16 @@ class AnalyticsBot:
         user_id, chat_id = message["from"]["id"], message["chat"]["id"]
         command = message["text"].split()[0].split("@", 1)[0]
         if command == "/start":
+            self.store.add_user(user_id)
             if not self.store.get("admin_ids"):
                 self.store.set("admin_ids", str(user_id)); self.store.set("report_chat_id", str(chat_id))
-                await self.tg.send(chat_id, "✅ Этот чат назначен для отчётов. Доступ получили вы.", self.keyboard()); return
-            if self.is_admin(user_id): await self.tg.send(chat_id, "Бот статистики работает.", self.keyboard())
+                await self.tg.send(chat_id, "✅ Этот чат назначен для автоматических отчётов. Доступ получили вы.", self.keyboard()); return
+            await self.tg.send(chat_id, "✅ Доступ к статистике открыт.", self.keyboard())
             return
-        if not self.is_admin(user_id): return
+        if not self.has_access(user_id): return
         if command == "/set_report_chat":
-            self.store.set("report_chat_id", str(chat_id)); await self.tg.send(chat_id, "✅ Этот чат назначен для автоматических отчётов.", self.keyboard())
+            if self.is_admin(user_id):
+                self.store.set("report_chat_id", str(chat_id)); await self.tg.send(chat_id, "✅ Этот чат назначен для автоматических отчётов.", self.keyboard())
         elif command == "/yesterday": await self.tg.send(chat_id, self.format_report("day"), self.keyboard())
         elif command == "/week": await self.tg.send(chat_id, self.format_report("week"), self.keyboard())
         elif command == "/all": await self.tg.send(chat_id, self.format_report("all"), self.keyboard())
