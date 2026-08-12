@@ -161,7 +161,7 @@ class Metrics:
             project = self.project_name(row["project"])
             data[project]["sent"] += row["sent"] or 0
             data[project]["replied"] += row["replied"] or 0
-        names = {"join_request": "requests", "join_approved": "approved", "second_message_sent": "second_sent", "third_message_sent": "third_sent", "site_registration": "registrations", "lead": "leads"}
+        names = {"join_request": "requests", "join_approved": "approved", "second_message_sent": "second_sent", "third_message_sent": "third_sent", "lead": "leads"}
         for row in self.store.event_rows(start, end):
             project = self.project_name(row["project"])
             data[project][names.get(row["event_type"], row["event_type"])] += row["count"]
@@ -281,9 +281,6 @@ class AnalyticsBot:
             if m["second_sent"] or m["third_sent"]:
                 result.append(f"• 2-е сообщение (ссылка на канал): <b>{m['second_sent']}</b>")
                 result.append(f"• 3-е сообщение (ссылка на сайт): <b>{m['third_sent']}</b>")
-            if project == "ГОСЗАКУПКИ":
-                site_conversion = f"{m['registrations'] / m['third_sent'] * 100:.1f}%" if m["third_sent"] else "—"
-                result.append(f"• Регистрации на сайте: <b>{m['registrations']}</b> ({site_conversion} от 3-го сообщения)")
             if m["leads"]: result.append(f"• Лиды: <b>{m['leads']}</b>")
         return "\n".join(result)
 
