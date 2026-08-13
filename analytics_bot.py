@@ -10,6 +10,7 @@ import html
 import json
 import logging
 import os
+import re
 import sqlite3
 from collections import defaultdict
 from contextlib import closing
@@ -123,6 +124,13 @@ class Store:
     def has_user(self, user_id: int) -> bool:
         return self.db.execute("SELECT 1 FROM users WHERE user_id=?", (user_id,)).fetchone() is not None
 
+    def apple_leads_channel_id(self) -> int | None:
+        value = self.get("apple_leads_channel_id")
+        return int(value) if value else None
+
+    def set_apple_leads_channel_id(self, chat_id: int) -> None:
+        self.set("apple_leads_channel_id", str(chat_id))
+
 
 class Metrics:
     """Combines direct Dialog Hub outreach facts with submitted funnel events."""
@@ -220,7 +228,7 @@ class TelegramAPI:
         return await self.call("sendMessage", **payload)
 
     async def poll(self, offset: int):
-        return await self.call("getUpdates", offset=offset, timeout=45, allowed_updates=["message", "callback_query"])
+        return await self.call("getUpdates", offset=offset, timeout=45, allowed_updates=["message", "callback_query", "channel_post"])
 
 
 class AnalyticsBot:
@@ -376,6 +384,10 @@ class AnalyticsBot:
     async def handle_update(self, update: dict[str, Any]) -> None:
         message = update.get("message")
         callback = update.get("callback_query")
+        channel_post = update.get("channel_post")
+        if channel_post:
+            await self.handle_apple_lead_post(channel_post)
+            return
         if callback:
             user_id = callback["from"]["id"]
             if not self.has_access(user_id): return
@@ -415,6 +427,28 @@ class AnalyticsBot:
         elif command == "/week": await self.tg.send(chat_id, self.format_report("week"), self.keyboard())
         elif command == "/all": await self.tg.send(chat_id, self.format_report("all"), self.keyboard())
         elif command == "/help": await self.tg.send(chat_id, "Команды: /yesterday, /week, /all, /set_report_chat", self.keyboard())
+
+    async def handle_apple_lead_post(self, post: dict[str, Any]) -> None:
+        """A lead from Masha is a channel post containing a photo and @username."""
+        chat_id = post["chat"]["id"]
+        configured = self.store.apple_leads_channel_id()
+        caption = post.get("caption") or post.get("text") or ""
+        username = re.search(r"(?<!\w)@([A-Za-z0-9_]{5,})", caption)
+        if not post.get("photo") or not username:
+            return
+        if configured is None:
+            self.store.set_apple_leads_channel_id(chat_id)
+            log.info("Apple lead channel bound to %s", chat_id)
+        elif configured != chat_id:
+            return
+        self.store.add_event({
+            "source": "masha_apple_leads",
+            "event_key": f"masha-apple-lead:{chat_id}:{post['message_id']}",
+            "project": "АЙФОНЫ",
+            "event_type": "lead",
+            "occurred_at": post.get("date", int(dt.datetime.now(dt.timezone.utc).timestamp())),
+            "payload": {"username": username.group(1), "channel_id": chat_id, "message_id": post["message_id"]},
+        })
 
     async def polling_loop(self):
         while True:
