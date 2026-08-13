@@ -311,17 +311,16 @@ class AnalyticsBot:
         tests = sorted([x for x in items if x["sent"] < 20], key=lambda x: (x["rate"], x["sent"]), reverse=True)
         def show(index: int, item: dict) -> str:
             text = html.escape(" ".join(item["text"].split()))
-            return f"<b>#{index} · {item['rate'] * 100:.1f}%</b>\n<blockquote>{text}</blockquote>\nОтветы: <b>{item['replied']}</b> из <b>{item['sent']}</b> отправок"
+            return f"<b>{index}. Конверсия {item['rate'] * 100:.1f}%</b>\n<blockquote>{text}</blockquote>\n<b>{item['replied']}/{item['sent']}</b> ответов"
         header = "\n".join([
             f"<b>Скрипты · {html.escape(project)}</b>",
             "Период: всё время",
-            f"Всего: <b>{total_replied}</b> ответов из <b>{total_sent}</b> отправок · <b>{average * 100:.1f}%</b>",
-            "Конверсия = ответы ÷ отправки × 100%. Скрипты с менее чем 20 отправками — гипотезы, а не вывод.",
+            f"Всего по текстовым скриптам: <b>{total_replied}/{total_sent}</b> ответов · <b>{average * 100:.1f}%</b>",
         ])
         sections: list[tuple[str, list[dict]]] = [
-            ("🏆 <b>Рабочие скрипты</b>\nВыборка от 20 отправок; конверсия не ниже средней.", leaders),
-            ("📉 <b>Нужна доработка</b>\nВыборка от 20 отправок; конверсия ниже средней.", weak),
-            ("🧪 <b>Тестируем</b>\nМеньше 20 отправок — пока рано считать скрипт успешным или слабым.", tests),
+            ("🏆 <b>Рабочие скрипты</b>\nДостаточная выборка (от 20 отправок), выше или на уровне среднего.", leaders),
+            ("📉 <b>Нужна доработка</b>\nДостаточная выборка, но конверсия ниже средней.", weak),
+            (f"🧪 <b>Ещё тестируем</b>\n{len(tests)} скриптов имеют меньше 20 отправок. Для них пока рано делать выводы — нужно добрать выборку.", tests),
         ]
         blocks = [header]
         for title, group in sections:
