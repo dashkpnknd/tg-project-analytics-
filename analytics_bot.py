@@ -305,7 +305,7 @@ class AnalyticsBot:
             conversion = f"{replied / sent * 100:.1f}%" if sent else "—"
             result.extend([f"\n<b>{html.escape(project)}</b>", f"• Отправлено: <b>{sent}</b>", f"• Ответили: <b>{replied}</b> ({conversion})"])
             result.append(f"• Заявки в канал: <b>{m['requests']}</b>")
-            if m["second_sent"] or m["third_sent"]:
+            if project == "ГОСЗАКУПКИ" or m["second_sent"] or m["third_sent"]:
                 result.append(f"• 2-е сообщение (ссылка на канал): <b>{m['second_sent']}</b>")
                 result.append(f"• 3-е сообщение (ссылка на сайт): <b>{m['third_sent']}</b>")
             if m["leads"]: result.append(f"• Лиды: <b>{m['leads']}</b>")
