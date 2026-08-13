@@ -182,7 +182,7 @@ class Metrics:
         """Message-level results: which first outreach texts create replies."""
         if not self.hub_db.exists(): return []
         query = """
-          SELECT o.script_label, COUNT(*) sent,
+          SELECT o.script_label, COUNT(*) sent, MAX(o.sent_at) last_sent_at,
             SUM(CASE WHEN o.replied_at>=:start AND (:end IS NULL OR o.replied_at<:end) THEN 1 ELSE 0 END) replied
           FROM outreach_messages o JOIN projects p ON p.id=o.project_id
           WHERE p.name=:project AND o.sent_at>=:start AND (:end IS NULL OR o.sent_at<:end)
@@ -243,13 +243,18 @@ class AnalyticsBot:
         ]}
 
     @staticmethod
-    def scripts_keyboard() -> dict:
+    def scripts_keyboard(project: str | None = None) -> dict:
+        rows = []
+        if project:
+            code = "tenders" if project == "ГОСЗАКУПКИ" else "trading"
+            rows.append([{"text": "🗂 Все скрипты за всё время", "callback_data": f"scripts_all_{code}"}])
+        rows.append([
+            {"text": "Госзакупки", "callback_data": "scripts_tenders"},
+            {"text": "Трейдинг", "callback_data": "scripts_trading"},
+        ])
+        rows.append([{"text": "← К отчётам", "callback_data": "reports_menu"}])
         return {"inline_keyboard": [
-            [
-                {"text": "Госзакупки", "callback_data": "scripts_tenders"},
-                {"text": "Трейдинг", "callback_data": "scripts_trading"},
-            ],
-            [{"text": "← К отчётам", "callback_data": "reports_menu"}],
+            *rows,
         ]}
 
     def report_chat_id(self) -> int | None:
@@ -298,10 +303,14 @@ class AnalyticsBot:
             if m["leads"]: result.append(f"• Лиды: <b>{m['leads']}</b>")
         return "\n".join(result)
 
-    def script_pages(self, project: str) -> list[str]:
+    def script_pages(self, project: str, active_only: bool = True) -> list[str]:
         rows = [row for row in self.metrics.outreach_texts(project, 0, None) if row["script_label"] != "[медиа/файл]"]
+        cutoff = int((dt.datetime.now(self.s.timezone) - dt.timedelta(days=2)).timestamp())
+        if active_only:
+            rows = [row for row in rows if row["last_sent_at"] >= cutoff]
+        period_label = "Актуальные: отправлялись за последние 2 дня" if active_only else "Все скрипты за всё время, включая отключённые"
         if not rows:
-            return [f"<b>Скрипты · {html.escape(project)}</b>\n\nПока нет данных по текстам."]
+            return [f"<b>Скрипты · {html.escape(project)}</b>\n{period_label}\n\nПока нет подходящих скриптов."]
         items = [{"text": row["script_label"], "sent": row["sent"], "replied": row["replied"], "rate": row["replied"] / row["sent"] if row["sent"] else 0} for row in rows]
         total_sent, total_replied = sum(x["sent"] for x in items), sum(x["replied"] for x in items)
         average = total_replied / total_sent if total_sent else 0
@@ -321,7 +330,7 @@ class AnalyticsBot:
             return f"<b>{index}. {item['replied']}/{item['sent']} ответов — {item['rate'] * 100:.1f}%</b>\n<blockquote>{text}</blockquote>"
         header = "\n".join([
             f"<b>Скрипты · {html.escape(project)}</b>",
-            "Период: всё время",
+            period_label,
             f"Всего по текстовым скриптам: <b>{total_replied}/{total_sent}</b> ответов · <b>{average * 100:.1f}%</b>",
         ])
         sections: list[tuple[str, list[dict]]] = [
@@ -350,15 +359,15 @@ class AnalyticsBot:
         if current: pages.append(current)
         return pages
 
-    def format_scripts(self, project: str) -> str:
+    def format_scripts(self, project: str, active_only: bool = True) -> str:
         """Kept for diagnostic use; Telegram sends all pages via the callback."""
-        return "\n\n".join(self.script_pages(project))
+        return "\n\n".join(self.script_pages(project, active_only))
 
-    async def send_script_pages(self, chat_id: int, project: str) -> None:
-        pages = self.script_pages(project)
+    async def send_script_pages(self, chat_id: int, project: str, active_only: bool = True) -> None:
+        pages = self.script_pages(project, active_only)
         for page_number, page in enumerate(pages, 1):
             suffix = f"\n\n<i>Страница {page_number}/{len(pages)}</i>" if len(pages) > 1 else ""
-            await self.tg.send(chat_id, page + suffix, self.scripts_keyboard())
+            await self.tg.send(chat_id, page + suffix, self.scripts_keyboard(project))
 
     async def send_report(self, kind: str, start: int | None = None, end: int | None = None, label: str | None = None) -> None:
         chat_id = self.report_chat_id()
@@ -374,11 +383,15 @@ class AnalyticsBot:
             chat_id = callback["message"]["chat"]["id"]
             action = callback["data"]
             if action == "scripts_menu":
-                await self.tg.send(chat_id, "<b>Скрипты</b>\nВыбери проект. Аналитика всегда за всё время.", self.scripts_keyboard())
+                await self.tg.send(chat_id, "<b>Скрипты</b>\nВыбери проект. Сначала показываются только актуальные варианты за последние 2 дня.", self.scripts_keyboard())
             elif action == "scripts_tenders":
                 await self.send_script_pages(chat_id, "ГОСЗАКУПКИ")
             elif action == "scripts_trading":
                 await self.send_script_pages(chat_id, "ТРЕЙДИНГ")
+            elif action == "scripts_all_tenders":
+                await self.send_script_pages(chat_id, "ГОСЗАКУПКИ", active_only=False)
+            elif action == "scripts_all_trading":
+                await self.send_script_pages(chat_id, "ТРЕЙДИНГ", active_only=False)
             elif action == "reports_menu":
                 await self.tg.send(chat_id, "Отчёты по проектам.", self.keyboard())
             else:
