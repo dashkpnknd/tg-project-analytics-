@@ -306,27 +306,39 @@ class AnalyticsBot:
         total_sent, total_replied = sum(x["sent"] for x in items), sum(x["replied"] for x in items)
         average = total_replied / total_sent if total_sent else 0
         reliable = [x for x in items if x["sent"] >= 20]
-        leaders = sorted([x for x in reliable if x["rate"] >= average], key=lambda x: (x["rate"], x["sent"]), reverse=True)
-        weak = sorted([x for x in reliable if x["rate"] < average], key=lambda x: (x["rate"], -x["sent"]))
-        tests = sorted([x for x in items if x["sent"] < 20], key=lambda x: (x["rate"], x["sent"]), reverse=True)
+        # Absolute labels are misleading: what is strong differs by project.
+        # A top script must beat the overall rate by 25% (or by 5 pp); a
+        # working script is at/above average, and the remainder needs work.
+        top_threshold = max(average * 1.25, average + 0.05)
+        top = sorted([x for x in reliable if x["rate"] >= top_threshold], key=lambda x: (x["rate"], x["sent"]), reverse=True)
+        working = sorted([x for x in reliable if average <= x["rate"] < top_threshold], key=lambda x: (x["rate"], x["sent"]), reverse=True)
+        weak = sorted([x for x in reliable if x["rate"] < average and x["replied"] > 0], key=lambda x: (x["rate"], -x["sent"]))
+        tests = sorted([x for x in items if x["sent"] < 20 and x["replied"] > 0], key=lambda x: (x["rate"], x["sent"]), reverse=True)
+        zero_tests = [x for x in items if x["sent"] < 20 and not x["replied"]]
+        zero_reliable = [x for x in reliable if not x["replied"]]
         def show(index: int, item: dict) -> str:
             text = html.escape(" ".join(item["text"].split()))
-            return f"<b>{index}. Конверсия {item['rate'] * 100:.1f}%</b>\n<blockquote>{text}</blockquote>\n<b>{item['replied']}/{item['sent']}</b> ответов"
+            return f"<b>{index}. {item['replied']}/{item['sent']} ответов — {item['rate'] * 100:.1f}%</b>\n<blockquote>{text}</blockquote>"
         header = "\n".join([
             f"<b>Скрипты · {html.escape(project)}</b>",
             "Период: всё время",
             f"Всего по текстовым скриптам: <b>{total_replied}/{total_sent}</b> ответов · <b>{average * 100:.1f}%</b>",
         ])
         sections: list[tuple[str, list[dict]]] = [
-            ("🏆 <b>Рабочие скрипты</b>\nДостаточная выборка (от 20 отправок), выше или на уровне среднего.", leaders),
-            ("📉 <b>Нужна доработка</b>\nДостаточная выборка, но конверсия ниже средней.", weak),
-            (f"🧪 <b>Ещё тестируем</b>\n{len(tests)} скриптов имеют меньше 20 отправок. Для них пока рано делать выводы — нужно добрать выборку.", tests),
+            (f"🏆 <b>Топовые скрипты</b>\nВыборка от 20 отправок; конверсия от {top_threshold * 100:.1f}% — минимум на 25% выше средней.", top),
+            ("✅ <b>Рабочие скрипты</b>\nВыборка от 20 отправок; конверсия на уровне или выше средней.", working),
+            ("📉 <b>Нужна доработка</b>\nВыборка от 20 отправок, но конверсия ниже средней.", weak),
+            (f"🧪 <b>Ещё тестируем</b>\n{len(tests)} скриптов с ответами, но выборка меньше 20 отправок — выводы делать рано.", tests),
         ]
         blocks = [header]
         for title, group in sections:
             if not group: continue
             blocks.append(title)
             blocks.extend(show(index, item) for index, item in enumerate(group, 1))
+        zero_count = len(zero_reliable) + len(zero_tests)
+        if zero_count:
+            zero_sent = sum(item["sent"] for item in zero_reliable + zero_tests)
+            blocks.append(f"⚪ <b>Без ответов</b>\n{zero_count} скриптов с 0 ответов на {zero_sent} отправок. Их тексты не выводятся, чтобы не засорять отчёт.")
         pages: list[str] = []
         current = ""
         for block in blocks:
