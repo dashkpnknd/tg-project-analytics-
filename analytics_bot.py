@@ -298,35 +298,56 @@ class AnalyticsBot:
             if m["leads"]: result.append(f"• Лиды: <b>{m['leads']}</b>")
         return "\n".join(result)
 
-    def format_scripts(self, project: str) -> str:
+    def script_pages(self, project: str) -> list[str]:
         rows = [row for row in self.metrics.outreach_texts(project, 0, None) if row["script_label"] != "[медиа/файл]"]
         if not rows:
-            return f"<b>Скрипты · {html.escape(project)}</b>\n\nПока нет данных по текстам."
+            return [f"<b>Скрипты · {html.escape(project)}</b>\n\nПока нет данных по текстам."]
         items = [{"text": row["script_label"], "sent": row["sent"], "replied": row["replied"], "rate": row["replied"] / row["sent"] if row["sent"] else 0} for row in rows]
         total_sent, total_replied = sum(x["sent"] for x in items), sum(x["replied"] for x in items)
         average = total_replied / total_sent if total_sent else 0
         reliable = [x for x in items if x["sent"] >= 20]
-        leaders = sorted([x for x in reliable if x["rate"] >= average], key=lambda x: (x["rate"], x["sent"]), reverse=True)[:3]
-        weak = sorted([x for x in reliable if x["rate"] < average], key=lambda x: (x["rate"], -x["sent"]))[:3]
-        tests = [x for x in items if x["sent"] < 20]
+        leaders = sorted([x for x in reliable if x["rate"] >= average], key=lambda x: (x["rate"], x["sent"]), reverse=True)
+        weak = sorted([x for x in reliable if x["rate"] < average], key=lambda x: (x["rate"], -x["sent"]))
+        tests = sorted([x for x in items if x["sent"] < 20], key=lambda x: (x["rate"], x["sent"]), reverse=True)
         def show(index: int, item: dict) -> str:
             text = html.escape(" ".join(item["text"].split()))
-            return f"{index}. {text}\n   <b>{item['replied']}/{item['sent']}</b> ответов · {item['rate'] * 100:.1f}%"
-        result = [
+            return f"<b>#{index} · {item['rate'] * 100:.1f}%</b>\n<blockquote>{text}</blockquote>\nОтветы: <b>{item['replied']}</b> из <b>{item['sent']}</b> отправок"
+        header = "\n".join([
             f"<b>Скрипты · {html.escape(project)}</b>",
             "Период: всё время",
-            f"Всего по текстовым скриптам: <b>{total_replied}/{total_sent}</b> ответов · {average * 100:.1f}%",
+            f"Всего: <b>{total_replied}</b> ответов из <b>{total_sent}</b> отправок · <b>{average * 100:.1f}%</b>",
+            "Конверсия = ответы ÷ отправки × 100%. Скрипты с менее чем 20 отправками — гипотезы, а не вывод.",
+        ])
+        sections: list[tuple[str, list[dict]]] = [
+            ("🏆 <b>Рабочие скрипты</b>\nВыборка от 20 отправок; конверсия не ниже средней.", leaders),
+            ("📉 <b>Нужна доработка</b>\nВыборка от 20 отправок; конверсия ниже средней.", weak),
+            ("🧪 <b>Тестируем</b>\nМеньше 20 отправок — пока рано считать скрипт успешным или слабым.", tests),
         ]
-        if leaders:
-            result.append("\n<b>🏆 Рабочие скрипты</b>\nДостаточная выборка (от 20 отправок), выше или на уровне среднего.")
-            result.extend(show(i, x) for i, x in enumerate(leaders, 1))
-        if weak:
-            result.append("\n<b>📉 Нужна доработка</b>\nДостаточная выборка, но конверсия ниже средней.")
-            result.extend(show(i, x) for i, x in enumerate(weak, 1))
-        if tests:
-            no_replies = sum(1 for x in tests if not x["replied"])
-            result.append(f"\n<b>🧪 Ещё тестируем</b>\n{len(tests)} скриптов имеют меньше 20 отправок; из них {no_replies} пока без ответов. Рано делать выводы — нужно добрать выборку.")
-        return "\n".join(result)
+        blocks = [header]
+        for title, group in sections:
+            if not group: continue
+            blocks.append(title)
+            blocks.extend(show(index, item) for index, item in enumerate(group, 1))
+        pages: list[str] = []
+        current = ""
+        for block in blocks:
+            candidate = f"{current}\n\n{block}" if current else block
+            if current and len(candidate) > 3500:
+                pages.append(current); current = block
+            else:
+                current = candidate
+        if current: pages.append(current)
+        return pages
+
+    def format_scripts(self, project: str) -> str:
+        """Kept for diagnostic use; Telegram sends all pages via the callback."""
+        return "\n\n".join(self.script_pages(project))
+
+    async def send_script_pages(self, chat_id: int, project: str) -> None:
+        pages = self.script_pages(project)
+        for page_number, page in enumerate(pages, 1):
+            suffix = f"\n\n<i>Страница {page_number}/{len(pages)}</i>" if len(pages) > 1 else ""
+            await self.tg.send(chat_id, page + suffix, self.scripts_keyboard())
 
     async def send_report(self, kind: str, start: int | None = None, end: int | None = None, label: str | None = None) -> None:
         chat_id = self.report_chat_id()
@@ -344,9 +365,9 @@ class AnalyticsBot:
             if action == "scripts_menu":
                 await self.tg.send(chat_id, "<b>Скрипты</b>\nВыбери проект. Аналитика всегда за всё время.", self.scripts_keyboard())
             elif action == "scripts_tenders":
-                await self.tg.send(chat_id, self.format_scripts("ГОСЗАКУПКИ"), self.scripts_keyboard())
+                await self.send_script_pages(chat_id, "ГОСЗАКУПКИ")
             elif action == "scripts_trading":
-                await self.tg.send(chat_id, self.format_scripts("ТРЕЙДИНГ"), self.scripts_keyboard())
+                await self.send_script_pages(chat_id, "ТРЕЙДИНГ")
             elif action == "reports_menu":
                 await self.tg.send(chat_id, "Отчёты по проектам.", self.keyboard())
             else:
