@@ -297,9 +297,11 @@ class AnalyticsBot:
         titles = {"day": "Ежедневная статистика", "week": "Статистика за неделю", "month": "Статистика за месяц", "all": "Статистика за всё время"}
         result = [f"<b>{titles[kind]}</b>", f"Период: {html.escape(label)}"]
         summary = self.metrics.summary(start, end)
-        if not summary:
-            return "\n".join(result + ["\nПока нет данных за этот период."])
-        for project in sorted(summary, key=str.casefold):
+        # A report must have a stable layout.  Zero is operationally useful:
+        # it means no activity, not a missing or random metric.
+        core_projects = ("АЙФОНЫ", "ГОСЗАКУПКИ", "МОРЕПРОДУКТЫ", "ТРЕЙДИНГ")
+        projects = list(core_projects) + sorted((name for name in summary if name not in core_projects), key=str.casefold)
+        for project in projects:
             m = summary[project]
             sent, replied = m["sent"], m["replied"]
             conversion = f"{replied / sent * 100:.1f}%" if sent else "—"
@@ -308,7 +310,8 @@ class AnalyticsBot:
             if project == "ГОСЗАКУПКИ" or m["second_sent"] or m["third_sent"]:
                 result.append(f"• 2-е сообщение (ссылка на канал): <b>{m['second_sent']}</b>")
                 result.append(f"• 3-е сообщение (ссылка на сайт): <b>{m['third_sent']}</b>")
-            if m["leads"]: result.append(f"• Лиды: <b>{m['leads']}</b>")
+            if project == "АЙФОНЫ": result.append(f"• Лиды Маши: <b>{m['leads']}</b>")
+            elif m["leads"]: result.append(f"• Лиды: <b>{m['leads']}</b>")
         return "\n".join(result)
 
     def script_pages(self, project: str, active_only: bool = True) -> list[str]:
