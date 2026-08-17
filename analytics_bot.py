@@ -245,6 +245,9 @@ class AnalyticsBot:
             [
                 {"text": "◀️ Вчера", "callback_data": "day"},
                 {"text": "📅 Эта неделя", "callback_data": "week"},
+            ],
+            [
+                {"text": "📆 Предыдущая неделя", "callback_data": "previous_week"},
                 {"text": "♾ За всё время", "callback_data": "all"},
             ],
             [{"text": "🧪 Скрипты", "callback_data": "scripts_menu"}],
@@ -285,6 +288,12 @@ class AnalyticsBot:
         if kind == "week":
             start = dt.datetime.combine(now.date() - dt.timedelta(days=now.weekday()), dt.time.min, self.s.timezone)
             return int(start.timestamp()), int(now.timestamp()) + 1, f"{start:%d.%m}–{now:%d.%m.%Y}"
+        if kind == "previous_week":
+            this_week_start = now.date() - dt.timedelta(days=now.weekday())
+            previous_week_start = this_week_start - dt.timedelta(days=7)
+            start = dt.datetime.combine(previous_week_start, dt.time.min, self.s.timezone)
+            end = dt.datetime.combine(this_week_start, dt.time.min, self.s.timezone)
+            return int(start.timestamp()), int(end.timestamp()), f"{previous_week_start:%d.%m}–{(this_week_start - dt.timedelta(days=1)):%d.%m.%Y}"
         if kind == "month":
             start = dt.datetime(now.year, now.month, 1, tzinfo=self.s.timezone)
             return int(start.timestamp()), int(now.timestamp()) + 1, now.strftime("%B %Y")
@@ -294,7 +303,7 @@ class AnalyticsBot:
         if start is None:
             start, end, label = self.period(kind)
         assert label is not None
-        titles = {"day": "Ежедневная статистика", "week": "Статистика за неделю", "month": "Статистика за месяц", "all": "Статистика за всё время"}
+        titles = {"day": "Ежедневная статистика", "week": "Статистика за неделю", "previous_week": "Статистика за предыдущую неделю", "month": "Статистика за месяц", "all": "Статистика за всё время"}
         result = [f"<b>{titles[kind]}</b>", f"Период: {html.escape(label)}"]
         summary = self.metrics.summary(start, end)
         # A report must have a stable layout.  Zero is operationally useful:
@@ -307,7 +316,10 @@ class AnalyticsBot:
             conversion = f"{replied / sent * 100:.1f}%" if sent else "—"
             result.extend([f"\n<b>{html.escape(project)}</b>", f"• Отправлено: <b>{sent}</b>", f"• Ответили: <b>{replied}</b> ({conversion})"])
             result.append(f"• Заявки в канал: <b>{m['requests']}</b>")
-            if project == "ГОСЗАКУПКИ" or m["second_sent"] or m["third_sent"]:
+            # Only the госзакупки funnel has defined second and third stages.
+            # Historical TG-zayavki records for other projects must not make
+            # unrelated stages appear in their reports.
+            if project == "ГОСЗАКУПКИ":
                 result.append(f"• 2-е сообщение (ссылка на канал): <b>{m['second_sent']}</b>")
                 result.append(f"• 3-е сообщение (ссылка на сайт): <b>{m['third_sent']}</b>")
             if project == "АЙФОНЫ": result.append(f"• Лиды Маши: <b>{m['leads']}</b>")
@@ -428,8 +440,9 @@ class AnalyticsBot:
                 self.store.set("report_chat_id", str(chat_id)); await self.tg.send(chat_id, "✅ Этот чат назначен для автоматических отчётов.", self.keyboard())
         elif command == "/yesterday": await self.tg.send(chat_id, self.format_report("day"), self.keyboard())
         elif command == "/week": await self.tg.send(chat_id, self.format_report("week"), self.keyboard())
+        elif command == "/previous_week": await self.tg.send(chat_id, self.format_report("previous_week"), self.keyboard())
         elif command == "/all": await self.tg.send(chat_id, self.format_report("all"), self.keyboard())
-        elif command == "/help": await self.tg.send(chat_id, "Команды: /yesterday, /week, /all, /set_report_chat", self.keyboard())
+        elif command == "/help": await self.tg.send(chat_id, "Команды: /yesterday, /week, /previous_week, /all, /set_report_chat", self.keyboard())
 
     async def handle_apple_lead_post(self, post: dict[str, Any]) -> None:
         """A lead from Masha is a channel post containing a photo and @username."""
