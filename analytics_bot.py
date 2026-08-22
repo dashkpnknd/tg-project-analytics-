@@ -525,19 +525,20 @@ class AnalyticsBot:
                     week_end = dt.datetime.combine(now.date(), dt.time.min, self.s.timezone)
                     week = week_start.isoformat()
                     if not self.store.report_sent("week", week):
-                        await self.send_report("week", int(dt.datetime.combine(week_start, dt.time.min, self.s.timezone).timestamp()), int(week_end.timestamp()), f"{week_start:%d.%m}–{(now.date() - dt.timedelta(days=1)):%d.%m.%Y}")
-                        self.store.mark_report_sent("week", week)
+                        if await self.send_report("week", int(dt.datetime.combine(week_start, dt.time.min, self.s.timezone).timestamp()), int(week_end.timestamp()), f"{week_start:%d.%m}–{(now.date() - dt.timedelta(days=1)):%d.%m.%Y}"):
+                            self.store.mark_report_sent("week", week)
                 if now.day == 1:
                     month_end = dt.datetime(now.year, now.month, 1, tzinfo=self.s.timezone)
                     previous_month_start = (month_end - dt.timedelta(days=1)).replace(day=1)
                     previous_month = previous_month_start.strftime("%Y-%m")
                     if not self.store.report_sent("month", previous_month):
-                        await self.send_report("month", int(previous_month_start.timestamp()), int(month_end.timestamp()), previous_month_start.strftime("%B %Y"))
-                        self.store.mark_report_sent("month", previous_month)
+                        if await self.send_report("month", int(previous_month_start.timestamp()), int(month_end.timestamp()), previous_month_start.strftime("%B %Y")):
+                            self.store.mark_report_sent("month", previous_month)
             await asyncio.sleep(30)
 
     async def ingest(self, request: web.Request) -> web.Response:
         if self.s.ingest_token and request.headers.get("Authorization") != f"Bearer {self.s.ingest_token}":
+            log.warning("Rejected analytics event: invalid or missing bearer token from %s", request.remote)
             raise web.HTTPUnauthorized()
         payload = await request.json()
         required = {"source", "event_key", "project", "event_type"}
