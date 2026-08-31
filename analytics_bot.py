@@ -421,19 +421,24 @@ class AnalyticsBot:
         result = [
             f"<b>{titles[kind]}</b>",
             f"Период: {html.escape(label)}",
-            "<i>В скобках у заявок и лидов: из отправленных, из ответивших.</i>",
         ]
         summary = self.metrics.summary(start, end)
         # A report must have a stable layout.  Zero is operationally useful:
         # it means no activity, not a missing or random metric.
         core_projects = ("АЙФОНЫ", "ГОСЗАКУПКИ", "МОРЕПРОДУКТЫ", "ТРЕЙДИНГ")
         projects = (project_filter,) if project_filter else list(core_projects) + sorted((name for name in summary if name not in core_projects), key=str.casefold)
+        project_icons = {
+            "АЙФОНЫ": "🍏",
+            "ГОСЗАКУПКИ": "🏛️",
+            "МОРЕПРОДУКТЫ": "🦐",
+            "ТРЕЙДИНГ": "📈",
+        }
         for project in projects:
             m = summary[project]
             sent, replied = m["sent"], m["replied"]
             conversion = f"{replied / sent * 100:.1f}%" if sent else "—"
             result.extend([
-                f"\n<b>{html.escape(project)}</b>",
+                f"\n<b>{project_icons.get(project, '📊')} {html.escape(project)}</b>",
                 f"• Отправлено: <b>{sent}</b>",
                 f"• Ответили: <b>{replied}</b> ({conversion})",
             ])
