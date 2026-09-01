@@ -452,7 +452,14 @@ class AnalyticsBot:
                 result.append(f"• 2-е сообщение (ссылка на канал): <b>{m['second_sent']}</b>")
             result.append(f"• Заявки в канал: <b>{requests}</b> {dual_conversion(requests)}")
             if project == "ГОСЗАКУПКИ":
-                result.append(f"• 3-е сообщение (ссылка на сайт): <b>{m['third_sent']}</b>")
+                third_sent = m["third_sent"]
+                from_sent = f"{third_sent / sent * 100:.1f}%" if sent else "—"
+                from_replied = f"{third_sent / replied * 100:.1f}%" if replied else "—"
+                from_second = f"{third_sent / m['second_sent'] * 100:.1f}%" if m["second_sent"] else "—"
+                result.append(
+                    f"• 3-е сообщение (ссылка на сайт): <b>{third_sent}</b> "
+                    f"(из отправленных: {from_sent}, из ответивших: {from_replied}, из 2-го сообщения: {from_second})"
+                )
             if project == "АЙФОНЫ":
                 result.append(f"• Лиды Маши: <b>{m['leads']}</b> {dual_conversion(m['leads'])}")
                 result.append("<b>Базы Apple</b>")
