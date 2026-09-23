@@ -1,0 +1,13 @@
+[Unit]
+Description=Live tenders activity feed
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/tg-project-analytics
+ExecStart=/opt/tg-project-analytics/venv/bin/python /opt/tg-project-analytics/tenders_feed.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
